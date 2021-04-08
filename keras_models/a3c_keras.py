@@ -8,8 +8,6 @@ import tensorflow.contrib.keras as keras
 from keras.layers import Input, Dense, concatenate
 from keras.layers.core import Flatten
 from keras.layers.convolutional import Conv1D
-from keras.models import Sequential
-
 
 GAMMA = 0.99
 A_DIM = 6
