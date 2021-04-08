@@ -1,0 +1,4 @@
+*.deb
+*.pyc
+*.gz
+__pycache__
