@@ -14,3 +14,9 @@ if __name__=="__main__":
         action_dim=A_DIM,
         learning_rate=ACTOR_LR_RATE
     )
+
+    critic = a3c_keras.CriticNetwork(
+        sess=tf.Session(),
+        state_dim=[S_INFO, S_LEN],
+        learning_rate=ACTOR_LR_RATE
+    )

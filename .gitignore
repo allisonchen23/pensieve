@@ -2,3 +2,6 @@
 *.pyc
 *.gz
 __pycache__
+pensieve-env
+selenium-2.39.0
+var
