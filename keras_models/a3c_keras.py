@@ -69,7 +69,6 @@ class ActorNetwork(object):
         with tf.variable_scope('actor'):
             # Generate inputs
             inputs_0 = Input(shape=(1,))
-            # print("inputs_0_keras: {}".format(inputs_0_keras))
             inputs_1 = Input(shape=(1,))
             inputs_2 = Input(shape=(1, self.s_dim[1]))
             inputs_3 = Input(shape=(1, self.s_dim[1]))
@@ -125,7 +124,8 @@ class ActorNetwork(object):
                 kernel_initializer='truncated_normal')(dense_net_0)
 
             model = Model(inputs=inputs_list, outputs=out)
-            return inputs, out, model
+
+            return inputs_list, out, model
 
     def train(self, inputs, acts, act_grad_weights):
 
@@ -170,7 +170,8 @@ class ActorNetwork(object):
         '''
         reader = tf.train.NewCheckpointReader(ckpt_path)
         var_to_shape_map = reader.get_variable_to_shape_map()
-        print(self.model)
+        self.model.summary()
+        # print(self.model.get_layer(index=0))
 
 class CriticNetwork(object):
     """
