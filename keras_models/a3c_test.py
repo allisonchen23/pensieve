@@ -1,14 +1,7 @@
-'''
-Keras implementation of pensieve/sim/a3c.py
-'''
 import numpy as np
 import tensorflow as tf
 import tflearn
-import tensorflow.contrib.keras as keras
-from keras.layers import Input, Dense, concatenate
-from keras.layers.core import Flatten
-from keras.layers.convolutional import Conv1D
-from keras.models import Model
+
 
 GAMMA = 0.99
 A_DIM = 6
@@ -29,7 +22,7 @@ class ActorNetwork(object):
         self.lr_rate = learning_rate
 
         # Create the actor network
-        self.inputs, self.out, self.model = self.create_actor_network()
+        self.inputs, self.out = self.create_actor_network()
 
         # Get all network parameters
         self.network_params = \
@@ -67,65 +60,25 @@ class ActorNetwork(object):
 
     def create_actor_network(self):
         with tf.variable_scope('actor'):
-            # Generate inputs
-            inputs_0 = Input(shape=(1,))
-            # print("inputs_0_keras: {}".format(inputs_0_keras))
-            inputs_1 = Input(shape=(1,))
-            inputs_2 = Input(shape=(1, self.s_dim[1]))
-            inputs_3 = Input(shape=(1, self.s_dim[1]))
-            inputs_4 = Input(shape=(1, A_DIM))
-            inputs_5 = Input(shape=(1,))
+            inputs = tflearn.input_data(shape=[None, self.s_dim[0], self.s_dim[1]])
 
-            inputs_list = [inputs_0, inputs_1, inputs_2, inputs_3, inputs_4, inputs_5]
+            split_0 = tflearn.fully_connected(inputs[:, 0:1, -1], 128, activation='relu')
+            split_1 = tflearn.fully_connected(inputs[:, 1:2, -1], 128, activation='relu')
+            split_2 = tflearn.conv_1d(inputs[:, 2:3, :], 128, 4, activation='relu')
+            split_3 = tflearn.conv_1d(inputs[:, 3:4, :], 128, 4, activation='relu')
+            split_4 = tflearn.conv_1d(inputs[:, 4:5, :A_DIM], 128, 4, activation='relu')
+            split_5 = tflearn.fully_connected(inputs[:, 4:5, -1], 128, activation='relu')
 
-            # Create layers
-            split_0 = Dense(128, activation='relu', kernel_initializer='truncated_normal')(inputs_0)
-            split_1 = Dense(128, activation='relu', kernel_initializer='truncated_normal')(inputs_1)
-            split_2 = Conv1D(
-                filters=128,
-                padding='same',
-                kernel_size=4,
-                activation='relu',
-                kernel_initializer='truncated_normal')(inputs_2)
-            split_3 = Conv1D(
-                filters=128,
-                padding='same',
-                kernel_size=4,
-                activation='relu',
-                kernel_initializer='truncated_normal')(inputs_3)
-            split_4 = Conv1D(
-                filters=128,
-                padding='same',
-                kernel_size=4,
-                activation='relu',
-                kernel_initializer='truncated_normal')(inputs_4)
-            split_5 = Dense(128,
-                activation='relu',
-                kernel_initializer='truncated_normal')(inputs_5)
+            split_2_flat = tflearn.flatten(split_2)
+            split_3_flat = tflearn.flatten(split_3)
+            split_4_flat = tflearn.flatten(split_4)
 
-            # Flatten the convolutional layers
-            split_2_flat = Flatten()(split_2)
-            split_3_flat = Flatten()(split_3)
-            split_4_flat = Flatten()(split_4)
+            merge_net = tflearn.merge([split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5], 'concat')
 
-            # Merge all layers to be "parallel" inputs
-            merge_net = concatenate([split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5], axis=0)
-            # merge_net = concatenate([split_0, split_1, split_2_flat, split_3_flat, split_5], axis=0)
+            dense_net_0 = tflearn.fully_connected(merge_net, 128, activation='relu')
+            out = tflearn.fully_connected(dense_net_0, self.a_dim, activation='softmax')
 
-            # Add a fully connected layer
-            dense_net_0 = Dense(
-                128,
-                activation='relu',
-                kernel_initializer='truncated_normal')(merge_net)
-
-            # Create outputs
-            out = Dense(
-                self.a_dim,
-                activation='softmax',
-                kernel_initializer='truncated_normal')(dense_net_0)
-
-            model = Model(inputs=inputs_list, outputs=out)
-            return inputs, out, model
+            return inputs, out
 
     def train(self, inputs, acts, act_grad_weights):
 
@@ -160,17 +113,6 @@ class ActorNetwork(object):
             i: d for i, d in zip(self.input_network_params, input_network_params)
         })
 
-    def restore_weights(self,
-                        ckpt_path):
-        '''
-        Restore weights of Keras model from CKPT file
-        Arg(s):
-            ckpt_path : string
-                path to ckpt file
-        '''
-        reader = tf.train.NewCheckpointReader(ckpt_path)
-        var_to_shape_map = reader.get_variable_to_shape_map()
-        print(self.model)
 
 class CriticNetwork(object):
     """
@@ -216,57 +158,23 @@ class CriticNetwork(object):
 
     def create_critic_network(self):
         with tf.variable_scope('critic'):
-            # Generate inputs
-            inputs = Input(shape=(self.s_dim[0], self.s_dim[1]))
-            inputs_0 = inputs[:, 0:1, -1]
-            inputs_1 = inputs[:, 1:2, -1]
-            inputs_2 = inputs[:, 2:3, :]
-            inputs_3 = inputs[:, 3:4, :]
-            inputs_4 = inputs[:, 4:5, :A_DIM]
-            inputs_5 = inputs[:, 4:5, -1]
+            inputs = tflearn.input_data(shape=[None, self.s_dim[0], self.s_dim[1]])
 
-            # Create layers
-            split_0 = Dense(128, activation='relu', kernel_initializer='truncated_normal')(inputs_0)
-            split_1 = Dense(128, activation='relu', kernel_initializer='truncated_normal')(inputs_1)
-            split_2 = Conv1D(
-                filters=128,
-                padding='same',
-                kernel_size=4,
-                activation='relu',
-                kernel_initializer='truncated_normal')(inputs_2)
-            split_3 = Conv1D(
-                filters=128,
-                padding='same',
-                kernel_size=4,
-                activation='relu',
-                kernel_initializer='truncated_normal')(inputs_3)
-            split_4 = Conv1D(
-                filters=128,
-                padding='same',
-                kernel_size=4,
-                activation='relu',
-                kernel_initializer='truncated_normal', use_bias=False)(inputs_4)
-            split_5 = Dense(128, activation='relu', kernel_initializer='truncated_normal')(inputs_5)
+            split_0 = tflearn.fully_connected(inputs[:, 0:1, -1], 128, activation='relu')
+            split_1 = tflearn.fully_connected(inputs[:, 1:2, -1], 128, activation='relu')
+            split_2 = tflearn.conv_1d(inputs[:, 2:3, :], 128, 4, activation='relu')
+            split_3 = tflearn.conv_1d(inputs[:, 3:4, :], 128, 4, activation='relu')
+            split_4 = tflearn.conv_1d(inputs[:, 4:5, :A_DIM], 128, 4, activation='relu')
+            split_5 = tflearn.fully_connected(inputs[:, 4:5, -1], 128, activation='relu')
 
-            # Flatten the convolutional layers
-            split_2_flat = Flatten()(split_2)
-            split_3_flat = Flatten()(split_3)
-            split_4_flat = Flatten()(split_4)
+            split_2_flat = tflearn.flatten(split_2)
+            split_3_flat = tflearn.flatten(split_3)
+            split_4_flat = tflearn.flatten(split_4)
 
-            # Merge all layers to be "parallel" inputs
-            merge_net = concatenate([split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5], axis=0)
+            merge_net = tflearn.merge([split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5], 'concat')
 
-            # Add a fully connected layer
-            dense_net_0 = Dense(
-                128,
-                activation='relu',
-                kernel_initializer='truncated_normal')(merge_net)
-
-            # Create outputs
-            out = Dense(
-                1,
-                activation='linear',
-                kernel_initializer='truncated_normal')(dense_net_0)
+            dense_net_0 = tflearn.fully_connected(merge_net, 128, activation='relu')
+            out = tflearn.fully_connected(dense_net_0, 1, activation='linear')
 
             return inputs, out
 
