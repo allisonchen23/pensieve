@@ -108,7 +108,7 @@ class ActorNetwork(object):
             split_4_flat = Flatten()(split_4)
 
             # Merge all layers to be "parallel" inputs
-            merge_net = concatenate([split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5], axis=0)
+            merge_net = concatenate([split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5], axis=-1)
             # merge_net = concatenate([split_0, split_1, split_2_flat, split_3_flat, split_5], axis=0)
 
             # Add a fully connected layer
@@ -161,16 +161,66 @@ class ActorNetwork(object):
         })
 
     def restore_weights(self,
-                        ckpt_path):
+                        ckpt_path,
+                        save_path=None):
         '''
         Restore weights of Keras model from CKPT file
         Arg(s):
             ckpt_path : string
                 path to ckpt file
         '''
+        if save_path is None:
+            save_path = ckpt_path.replace('.ckpt', '.h5')
+        print(save_path)
+        ckpt_layer_names = [
+            'actor/FullyConnected',
+            'actor/FullyConnected_1',
+            'actor/Conv1D',
+            'actor/Conv1D_1',
+            'actor/Conv1D_2',
+            'actor/FullyConnected_2',
+            'actor/FullyConnected_3',
+            'actor/FullyConnected_4'
+        ]
+
+        keras_layer_names = [
+            'dense_1',
+            'dense_2',
+            'conv1d_1',
+            'conv1d_2',
+            'conv1d_3',
+            'dense_3',
+            'dense_4',
+            'dense_5'
+        ]
+
         reader = tf.train.NewCheckpointReader(ckpt_path)
         var_to_shape_map = reader.get_variable_to_shape_map()
         self.model.summary()
+        for ckpt_layer_name, keras_layer_name in zip(ckpt_layer_names, keras_layer_names):
+            # Obtain old weights (to check shape later)
+            old_weights = self.model.get_layer(keras_layer_name).get_weights()
+
+            # Extract weight values from ckpt layers and store into keras layers
+            weights = reader.get_tensor(ckpt_layer_name + '/W')
+
+            # Assume that one dimension is a 1 and can be squeezed to match
+            if old_weights[0].shape != weights.shape:
+                weights = np.squeeze(weights)
+                assert old_weights[0].shape == weights.shape
+            biases = reader.get_tensor(ckpt_layer_name + '/b')
+            self.model.get_layer(keras_layer_name).set_weights([weights, biases])
+
+            # print("after updating: ", end='')
+            # print(self.model.get_layer(keras_layer_name).get_weights()[0][0][:10])
+
+            new_weights = self.model.get_layer(keras_layer_name).get_weights()
+
+            # Sanity check
+            for old_weight, new_weight in zip(old_weights, new_weights):
+                assert not (old_weight == new_weight).all()
+        print("Saving model to {}".format(save_path))
+        self.model.save(save_path)
         # print(self.model.get_layer(index=0))
 
 class CriticNetwork(object):

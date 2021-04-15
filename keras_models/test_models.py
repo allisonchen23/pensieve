@@ -34,11 +34,14 @@ def load_model_to_keras():
         nn_model = NN_MODEL
         if nn_model is not None:  # nn_model is the path to file
             reader = tf.train.NewCheckpointReader(nn_model)
-            actor.restore_weights(nn_model)
-            # var_to_shape_map = reader.get_variable_to_shape_map()
-            # for key, value in sorted(var_to_shape_map.items()):
-            #     if 'RMSProp' not in key and 'critic' not in key:
-            #         print("{} {}".format(key, value))
+            actor.restore_weights(
+                ckpt_path=nn_model,
+                save_path='keras_models/keras_model.h5'
+                )
+            var_to_shape_map = reader.get_variable_to_shape_map()
+            for key, value in sorted(var_to_shape_map.items()):
+                if 'RMSProp' not in key and 'critic' not in key:
+                    print("{} {}".format(key, value))
             # print(reader.get_tensor('actor/Conv1D/W'))
             # inspect_checkpoint.print_tensors_in_checkpoint_file(
             #     file_name=nn_model,
