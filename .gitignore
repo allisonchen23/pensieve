@@ -5,3 +5,6 @@ __pycache__
 pensieve-env
 selenium-2.39.0
 var
+
+# Allison added
+*.h5
