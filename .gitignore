@@ -8,3 +8,4 @@ var
 
 # Allison added
 *.h5
+synthetic_traces_complete/
