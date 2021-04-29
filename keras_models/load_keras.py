@@ -1,5 +1,4 @@
 import a3c_keras
-import a3c_test
 import tensorflow as tf
 from tensorflow.python.tools import inspect_checkpoint
 
@@ -13,7 +12,8 @@ CRITIC_LR_RATE = 0.001
 NN_MODEL = 'sim/results/pretrain_linear_reward.ckpt'
 
 def load_model_to_keras(ckpt_path=NN_MODEL,
-                        save_path=None,
+                        h5_save_path=None,
+                        csv_save_dir=None,
                         state_info=S_INFO,
                         state_len=S_LEN,
                         actor_dim=A_DIM,
@@ -43,8 +43,10 @@ def load_model_to_keras(ckpt_path=NN_MODEL,
         Arg(s):
             ckpt_path : str
                 path to ckpt file
-            save_path : None or str
+            h5_save_path : None or str
                 path to save h5 model in. If None, stores in same path as ckpt_path, but with .h5 extension
+            csv_save_dir : None or str
+                if None, do not save weights as CSV. Otherwise save weights as CSV files in this directory
             state_info : int
                 number of variables in state
             state_len : int
@@ -75,7 +77,8 @@ def load_model_to_keras(ckpt_path=NN_MODEL,
         if ckpt_path is not None:  # nn_model is the path to file
             actor.load_ckpt_store_h5(
                 ckpt_path=ckpt_path,
-                save_path=save_path,
+                save_path=h5_save_path,
+                csv_save_dir=csv_save_dir,
                 ckpt_layer_names=ckpt_layer_names,
                 keras_layer_names=keras_layer_names
                 )
@@ -89,5 +92,7 @@ if __name__=="__main__":
     '''
     Load .ckpt model into Keras
     '''
-    load_model_to_keras()
+    load_model_to_keras(
+        csv_save_dir="keras_models/pensieve_csv"
+    )
 

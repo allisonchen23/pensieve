@@ -1,6 +1,7 @@
 '''
 Keras implementation of pensieve/sim/a3c.py
 '''
+import os
 import numpy as np
 import tensorflow as tf
 import tflearn
@@ -163,6 +164,7 @@ class ActorNetwork(object):
     def load_ckpt_store_h5(self,
                         ckpt_path,
                         save_path=None,
+                        csv_save_dir=None,
                         ckpt_layer_names=[
                             'actor/FullyConnected',
                             'actor/FullyConnected_1',
@@ -190,6 +192,8 @@ class ActorNetwork(object):
                 path to ckpt file
             save_path : None or str
                 path to save h5 model in. If None, stores in same path as ckpt_path, but with .h5 extension
+            csv_save_dir : None or str
+                if None, do not save weights as CSV. Otherwise save weights as CSV files in this directory
             ckpt_layer_names : list[str]
                 list of names of ckpt layers (not including '/W' or '/b' for weights and biases)
             keras_layer_names : list[str]
@@ -197,21 +201,29 @@ class ActorNetwork(object):
         Returns:
             None
         '''
+
+        # Checks for paths
         if save_path is None:
             save_path = ckpt_path.replace('.ckpt', '.h5')
-        print(save_path)
+        
+        if csv_save_dir is not None:
+            # Clear directory if it exists
+            if os.path.isdir(csv_save_dir):
+                os.system("rm -rf {}".format(csv_save_dir))
+            os.makedirs(csv_save_dir)
+
         assert len(ckpt_layer_names) == len(keras_layer_names)
 
         # Obtain reader to understand ckpt checkpoints
         reader = tf.train.NewCheckpointReader(ckpt_path)
 
-        for ckpt_layer_name, keras_layer_name in zip(ckpt_layer_names, keras_layer_names):
+        for layer_idx, (ckpt_layer_name, keras_layer_name) in enumerate(zip(ckpt_layer_names, keras_layer_names)):
             # Obtain old weights (to check shape later)
             old_weights = self.model.get_layer(keras_layer_name).get_weights()
 
             # Extract weight values from ckpt layers and store into keras layers
             weights = reader.get_tensor(ckpt_layer_name + '/W')
-
+            
             # Assume that one dimension is a 1 and can be squeezed to match
             if old_weights[0].shape != weights.shape:
                 weights = np.squeeze(weights)
@@ -222,9 +234,41 @@ class ActorNetwork(object):
 
             new_weights = self.model.get_layer(keras_layer_name).get_weights()
 
+            # print("weights: type: {} shape: {}".format(type(weights), weights.shape))
+            # print("biases: type: {} shape: {}\n".format(type(biases), biases.shape))
             # Sanity check
             for old_weight, new_weight in zip(old_weights, new_weights):
                 assert not (old_weight == new_weight).all()
+            
+            # Save to CSV, if desired
+            if csv_save_dir is not None:
+                '''
+                Save weights
+                '''
+
+                # Check if 3d tensor
+                if 2 < len(weights.shape):
+                    # iterate through each kernel
+                    for kernel_idx in range(weights.shape[0]):
+                        kernel_weights = weights[kernel_idx]
+                        np.savetxt(
+                            os.path.join(csv_save_dir, "weights_layer{}_kernel{}.csv".format(layer_idx, kernel_idx)), 
+                            kernel_weights, 
+                            delimiter=",")
+                else:
+                    np.savetxt(
+                        os.path.join(csv_save_dir, "weights_layer{}.csv".format(layer_idx)),
+                        weights,
+                        delimiter=",")
+                
+                '''
+                Save biases
+                '''
+                np.savetxt(
+                    os.path.join(csv_save_dir, "bias_layer{}.csv".format(layer_idx)),
+                        biases,
+                        delimiter=",")
+
 
         print("Saving model to {}".format(save_path))
         self.model.save(save_path)
