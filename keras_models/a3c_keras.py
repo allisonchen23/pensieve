@@ -205,7 +205,7 @@ class ActorNetwork(object):
         # Checks for paths
         if save_path is None:
             save_path = ckpt_path.replace('.ckpt', '.h5')
-        
+
         if csv_save_dir is not None:
             # Clear directory if it exists
             if os.path.isdir(csv_save_dir):
@@ -223,23 +223,23 @@ class ActorNetwork(object):
 
             # Extract weight values from ckpt layers and store into keras layers
             weights = reader.get_tensor(ckpt_layer_name + '/W')
-            
+
             # Assume that one dimension is a 1 and can be squeezed to match
             if old_weights[0].shape != weights.shape:
                 weights = np.squeeze(weights)
                 assert old_weights[0].shape == weights.shape
 
             biases = reader.get_tensor(ckpt_layer_name + '/b')
+
+
             self.model.get_layer(keras_layer_name).set_weights([weights, biases])
 
             new_weights = self.model.get_layer(keras_layer_name).get_weights()
 
-            # print("weights: type: {} shape: {}".format(type(weights), weights.shape))
-            # print("biases: type: {} shape: {}\n".format(type(biases), biases.shape))
             # Sanity check
             for old_weight, new_weight in zip(old_weights, new_weights):
                 assert not (old_weight == new_weight).all()
-            
+
             # Save to CSV, if desired
             if csv_save_dir is not None:
                 '''
@@ -252,15 +252,15 @@ class ActorNetwork(object):
                     for kernel_idx in range(weights.shape[0]):
                         kernel_weights = weights[kernel_idx]
                         np.savetxt(
-                            os.path.join(csv_save_dir, "weights_layer{}_kernel{}.csv".format(layer_idx, kernel_idx)), 
-                            kernel_weights, 
+                            os.path.join(csv_save_dir, "weights_layer{}_kernel{}.csv".format(layer_idx, kernel_idx)),
+                            kernel_weights,
                             delimiter=",")
                 else:
                     np.savetxt(
                         os.path.join(csv_save_dir, "weights_layer{}.csv".format(layer_idx)),
                         weights,
                         delimiter=",")
-                
+
                 '''
                 Save biases
                 '''
@@ -272,6 +272,168 @@ class ActorNetwork(object):
 
         print("Saving model to {}".format(save_path))
         self.model.save(save_path)
+
+    def save_actor_end(self,
+                       save_h5_path=None,
+                       save_csv_dir=None):
+        '''
+        Create and return ActorNetworkEnd (only the last 2 layers) to feed into COMET
+        Arg(s):
+            save_h5_path : str or None
+                save .h5 model to path if specified
+            save_csv_dir : str or None
+                save weights as CSV files in this directory if specified
+        Returns:
+            ActorNetworkEnd object
+        '''
+        self.model.summary()
+        actor_end = ActorNetworkEnd(self.sess, self.s_dim, self.a_dim, self.lr_rate)
+        actor_end.model.summary()
+        actor_layer_names = ['dense_4', 'dense_5']
+        actor_end_layer_names = ['dense_1', 'dense_2']
+        if save_csv_dir is not None:
+            if os.path.isdir(save_csv_dir):
+                os.system("rm -rf {}".format(save_csv_dir))
+            os.makedirs(save_csv_dir)
+        if save_h5_path is not None:
+            h5_dir = os.path.dirname(save_h5_path)
+            if not os.path.isdir(h5_dir):
+                os.makedirs(h5_dir)
+
+        for idx, (actor_layer_name, actor_end_layer_name) in enumerate(zip(actor_layer_names, actor_end_layer_names)):
+            weights = self.model.get_layer(actor_layer_name).get_weights()
+            print(actor_end_layer_name)
+            actor_end.model.get_layer(actor_end_layer_name).set_weights(weights)
+
+            if save_csv_dir is not None:
+                np.savetxt(
+                    os.path.join(save_csv_dir, "weights_layer{}.csv".format(layer_idx)),
+                    weights,
+                    delimiter=",")
+
+        if save_h5_path is not None:
+            actor_end.model.save(save_h5_path)
+
+        return actor_end
+
+    def load_weights(self, h5_path):
+        '''
+        Load weights into actor model
+        Arg(s):
+            h5_path : str
+                path to .h5 model weights
+        '''
+        self.model = keras.models.load_model(h5_path)
+
+
+class ActorNetworkEnd(object):
+    """
+    Input to the network is the state, output is the distribution
+    of all actions.
+    """
+    def __init__(self, sess, state_dim, action_dim, learning_rate):
+        self.sess = sess
+        self.s_dim = state_dim
+        self.a_dim = action_dim
+        self.lr_rate = learning_rate
+
+        # Create the actor network
+        self.inputs, self.out, self.model = self.create_actor_network_end()
+
+        # Get all network parameters
+        self.network_params = \
+            tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='actor')
+
+        # Set all network parameters
+        self.input_network_params = []
+        for param in self.network_params:
+            self.input_network_params.append(
+                tf.placeholder(tf.float32, shape=param.get_shape()))
+        self.set_network_params_op = []
+        for idx, param in enumerate(self.input_network_params):
+            self.set_network_params_op.append(self.network_params[idx].assign(param))
+
+        # Selected action, 0-1 vector
+        self.acts = tf.placeholder(tf.float32, [None, self.a_dim])
+
+        # This gradient will be provided by the critic network
+        self.act_grad_weights = tf.placeholder(tf.float32, [None, 1])
+
+        # Compute the objective (log action_vector and entropy)
+        self.obj = tf.reduce_sum(tf.multiply(
+                       tf.log(tf.reduce_sum(tf.multiply(self.out, self.acts),
+                                            reduction_indices=1, keep_dims=True)),
+                       -self.act_grad_weights)) \
+                   + ENTROPY_WEIGHT * tf.reduce_sum(tf.multiply(self.out,
+                                                           tf.log(self.out + ENTROPY_EPS)))
+
+        # Combine the gradients here
+        self.actor_gradients = tf.gradients(self.obj, self.network_params)
+
+        # Optimization Op
+        self.optimize = tf.train.RMSPropOptimizer(self.lr_rate).\
+            apply_gradients(zip(self.actor_gradients, self.network_params))
+
+    def create_actor_network_end(self):
+        with tf.variable_scope('actor'):
+            # Generate inputs
+
+            inputs = Input(shape=(768,))
+
+            inputs_list = [inputs]
+            # Create layers
+            # Add a fully connected layer
+            dense_net_0 = Dense(
+                128,
+                activation='relu',
+                kernel_initializer='truncated_normal')(inputs)
+
+            # Create outputs
+            out = Dense(
+                self.a_dim,
+                activation='softmax',
+                kernel_initializer='truncated_normal')(dense_net_0)
+
+            model = Model(inputs=inputs_list, outputs=out)
+
+            return inputs_list, out, model
+
+    def train(self, inputs, acts, act_grad_weights):
+
+        self.sess.run(self.optimize, feed_dict={
+            self.inputs: inputs,
+            self.acts: acts,
+            self.act_grad_weights: act_grad_weights
+        })
+
+    def predict(self, inputs):
+        return self.sess.run(self.out, feed_dict={
+            self.inputs: inputs
+        })
+
+    def get_gradients(self, inputs, acts, act_grad_weights):
+        return self.sess.run(self.actor_gradients, feed_dict={
+            self.inputs: inputs,
+            self.acts: acts,
+            self.act_grad_weights: act_grad_weights
+        })
+
+    def apply_gradients(self, actor_gradients):
+        return self.sess.run(self.optimize, feed_dict={
+            i: d for i, d in zip(self.actor_gradients, actor_gradients)
+        })
+
+    def get_network_params(self):
+        return self.sess.run(self.network_params)
+
+    def set_network_params(self, input_network_params):
+        self.sess.run(self.set_network_params_op, feed_dict={
+            i: d for i, d in zip(self.input_network_params, input_network_params)
+        })
+
+    def get_summary(self):
+        self.model.summary()
+        print("Layers: {}".format([layer.name for layer in self.model.layers]))
 
 class CriticNetwork(object):
     """
